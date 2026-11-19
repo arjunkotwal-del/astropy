@@ -1,9 +1,11 @@
 # Licensed under a 3-clause BSD style license - see LICENSE.rst
 """Regression tests for the units package."""
 
+import gc
 import itertools
 import operator
 import pickle
+import weakref
 from contextlib import nullcontext
 from fractions import Fraction
 
@@ -389,6 +391,29 @@ def test_decompose_bases():
     assert d._bases == [u.cm, u.g, u.s]
     assert d._powers == [Fraction(3, 2), 0.5, -1]
     assert d._scale == 1.0
+
+
+@pytest.mark.parametrize(
+    "bases, powers",
+    [
+        pytest.param([u.s], [-1], id="irreducible"),
+        pytest.param([u.km, u.s], [1, -1], id="decomposed"),
+    ],
+)
+def test_decompose_does_not_create_reference_cycle(bases, powers):
+    # Regression test for #20903: decomposing a unit whose bases are all
+    # irreducible stored the unit in its own cache, so it could only be
+    # freed by the cyclic garbage collector.
+    gc.collect()
+    gc.disable()
+    try:
+        unit = u.CompositeUnit(1, bases, powers).decompose()
+        assert unit.decompose() is unit
+        ref = weakref.ref(unit)
+        del unit
+        assert ref() is None
+    finally:
+        gc.enable()
 
 
 def test_complex_compose():
